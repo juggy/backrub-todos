@@ -21,7 +21,7 @@ Backbone Template lets you describe your Backbone view layer in a single templat
 
 # More...
 
-Check out Backbone Template Github repo at (https://github.com/juggy/backbone-template)
+Check out Backbone Template Github repo at https://github.com/juggy/backbone-template
 
 # License (MIT)
 
