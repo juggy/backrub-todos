@@ -52,7 +52,7 @@ this.TodoView = Backbone.View.extend({
   
   alive : function(){
     this.input = this.$(".todo-input");
-    el = this.el;
+    var el = this.el;
     this.model.bind("change:done", function(){$(el).toggleClass("done")});
     if( this.model.get("done") ) $(el).addClass("done");
   },
