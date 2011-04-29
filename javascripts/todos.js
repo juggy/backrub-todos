@@ -3,6 +3,7 @@ this.Todo = Backbone.Model.extend({
 
   toggle: function() {
     this.save({done: !this.get("done")});
+    this.collection.trigger("change:done")
   }
   
 });
@@ -92,15 +93,12 @@ this.AppView = Backbone.View.extend({
   initialize: function() {
     _.bindAll(this, "items", "remainingItems", "remainingWord", "doneItems", "doneWord");
     this.model = Todos;
-    self = this;
-    this.model.bind("all", function(){
-      self.trigger("change:items");
-      self.trigger("change:remainingItems");
-      self.trigger("change:remainingWord");
-      self.trigger("change:doneItems");
-      self.trigger("change:doneWord");
-    });
-    
+    this.dependencies( this,
+      {"items add remove refresh" : "model",
+      "doneItems change:done add remove refresh" : "model",
+      "remainingItems change:items change:doneItems": "",
+      "remainingWord change:remainingItems": "",
+      "doneWord change:doneItems": "" });
   },
   
   alive : function() {
@@ -111,18 +109,23 @@ this.AppView = Backbone.View.extend({
   items: function(){
     return this.model.size()
   },
+  
   remainingItems : function(){
     return this.items() - this.doneItems();
   },
+  
   remainingWord : function(){
     return this.word(this.remainingItems());
   },
+  
   doneItems : function(){
     return this.model.done().length;
   },
+  
   doneWord : function(){
     return this.word(this.doneItems());
   }, 
+  
   word : function(count){
     return (count === 1 ? "item" : "items");
   },
