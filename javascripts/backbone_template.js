@@ -4,30 +4,37 @@ Template = {
     nameLookup: Handlebars.JavaScriptCompiler.prototype.nameLookup,
     mustache: Handlebars.Compiler.prototype.mustache
   },
-  _getPath: function(path, base) {
-    var parts;
+  _getPath: function(path, base, wrap) {
+    var parts, prev;
+    wrap = wrap || false;
     base = base || window;
+    prev = base;
     if (path === null || path === void 0) {
-      throw "Path is undefined or null";
+      throw new Error("Path is undefined or null");
     }
     parts = path.split(".");
     _.each(parts, function(p) {
+      prev = base;
       base = p === "" ? base : base[p];
       if (!base) {
-        throw "cannot find given path '" + path + "'";
+        throw new Error("cannot find given path '" + path + "'");
         return {};
       }
     });
-    return base;
+    if (typeof base === "function" && wrap) {
+      return _.bind(base, prev);
+    } else {
+      return base;
+    }
   },
   _resolveValue: function(attr, model) {
     var model_info, value;
     model_info = Template._resolveIsModel(attr, model);
     value = (function() {
       try {
-        return Template._getPath(model_info.attr, model_info.model);
+        return Template._getPath(model_info.attr, model_info.model, true);
       } catch (error) {
-        return model_info.attr;
+
       }
     })();
     if (model_info.is_model) {
@@ -35,13 +42,13 @@ Template = {
     } else if (typeof value === "function") {
       return value();
     } else {
-      return value;
+      return value || "";
     }
   },
   _resolveIsModel: function(attr, model) {
     var is_model;
     is_model = false;
-    attr = (typeof attr.charAt == "function" ? attr.charAt(0) : void 0) === "@" ? (is_model = true, model = model.model, attr.substring(1)) : model.model && model.model.get(attr) !== void 0 ? (is_model = true, model = model.model, attr) : attr;
+    attr = attr && ((typeof attr.charAt == "function" ? attr.charAt(0) : void 0) === "@") ? (is_model = true, model = model.model, attr.substring(1)) : attr && model.model && model.model.get(attr) !== void 0 ? (is_model = true, model = model.model, attr) : attr;
     return {
       is_model: is_model,
       attr: attr,
@@ -58,24 +65,28 @@ Template = {
       context.data.exec.addView(view);
       model_info = Template._resolveIsModel(attr, this);
       model_info.model.bind("change:" + model_info.attr, function() {
-        view.rerender();
-        return context.data.exec.makeAlive();
+        if (context.data.exec.isAlive()) {
+          view.rerender();
+          return context.data.exec.makeAlive();
+        }
       });
       view.render = function() {
         var fn;
         fn = Template._resolveValue(this.attr, this.model) ? context.fn : context.inverse;
-        return new Handlebars.SafeString(this.span(fn(this.model, null, null, context.data)));
+        return new Handlebars.SafeString(this.span(fn(this.model, {
+          data: context.data
+        })));
       };
       return view.render();
     } else {
-      throw "No block is provided!";
+      throw new Error("No block is provided!");
     }
   },
   _createView: function(viewProto, options) {
     var v;
     v = new viewProto(options);
     if (!v) {
-      throw "Cannot instantiate view";
+      throw new Error("Cannot instantiate view");
     }
     v.span = Template._BindView.prototype.span;
     v.live = Template._BindView.prototype.live;
@@ -98,9 +109,6 @@ Template = {
     },
     textAttributes: function() {
       var attr;
-      if (this.renderedAttributes) {
-        return this.renderedAttributes;
-      }
       this.attributes = this.attributes || this.options.attributes || {};
       if (!this.attributes.id && this.id) {
         this.attributes.id = this.id;
@@ -111,7 +119,7 @@ Template = {
       attr = _.map(this.attributes, function(v, k) {
         return "" + k + "=\"" + v + "\"";
       });
-      return this.renderedAttributes = attr.join(" ");
+      return attr.join(" ");
     },
     span: function(inner) {
       return "<" + this.tagName + " " + (this.textAttributes()) + " data-bvid=\"" + this.bvid + "\">" + inner + "</" + this.tagName + ">";
@@ -137,7 +145,7 @@ Handlebars.Compiler.prototype.mustache = function(mustache) {
 };
 Handlebars.JavaScriptCompiler.prototype.nameLookup = function(parent, name, type) {
   if (type === 'context') {
-    return "(context.model && context.model.get(\"" + name + "\") != null ? \"@" + name + "\" : context." + name + ");";
+    return "(context.model && context.model.get(\"" + name + "\") != null ? \"@" + name + "\" : \"" + name + "\");";
   } else {
     return Template._Genuine.nameLookup.call(this, parent, name, type);
   }
@@ -145,7 +153,7 @@ Handlebars.JavaScriptCompiler.prototype.nameLookup = function(parent, name, type
 Backbone.dependencies = function(base, onHash) {
   var event, path, setupEvent, _results;
   if (!base.trigger && !base.bind) {
-    throw "Not a Backbone.Event object";
+    throw new Error("Not a Backbone.Event object");
   }
   setupEvent = function(event, path) {
     var attr, e, object, parts, _i, _len, _ref, _results;
@@ -177,7 +185,7 @@ for (_i = 0, _len = _ref.length; _i < _len; _i++) {
   });
 }
 Backbone.Template = function(template) {
-  _.bindAll(this, "addView", "render", "makeAlive");
+  _.bindAll(this, "addView", "render", "makeAlive", "isAlive");
   this.compiled = Handlebars.compile(template, {
     data: true,
     stringParams: true
@@ -191,8 +199,10 @@ _.extend(Backbone.Template.prototype, {
   render: function(options) {
     var self;
     self = this;
-    return this.compiled(options, null, null, {
-      exec: this
+    return this.compiled(options, {
+      data: {
+        exec: this
+      }
     });
   },
   makeAlive: function(base) {
@@ -204,6 +214,7 @@ _.extend(Backbone.Template.prototype, {
     _.each(currentViews, function(view, bvid) {
       return query.push("[data-bvid='" + bvid + "']");
     });
+    this._alive = true;
     self = this;
     $(query.join(","), base).each(function() {
       var el, view, _ref;
@@ -213,8 +224,10 @@ _.extend(Backbone.Template.prototype, {
       view.delegateEvents();
       return (_ref = view.alive) != null ? _ref.call(view) : void 0;
     });
-    _.extend(this._aliveViews, currentViews);
-    return this._alive = true;
+    return _.extend(this._aliveViews, currentViews);
+  },
+  isAlive: function() {
+    return this._alive;
   },
   addView: function(view) {
     return this._createdViews[view.bvid] = view;
@@ -229,24 +242,36 @@ Backbone.TemplateView = Backbone.View.extend({
   initialize: function(options) {
     this.template = this.template || options.template;
     if (!this.template) {
-      throw "Template is missing";
+      throw new Error("Template is missing");
     }
     return this.compile = new Backbone.Template(this.template);
   },
   render: function() {
-    $(this.el).html(this.compile.render(this));
-    this.compile.makeAlive(this.el);
+    try {
+      $(this.el).html(this.compile.render(this));
+      this.compile.makeAlive(this.el);
+    } catch (e) {
+      console.error(e.stack);
+    }
     return this.el;
   }
 });
 Handlebars.registerHelper("view", function(viewName, context) {
-  var execContext, v, view;
+  var execContext, key, resolvedOptions, v, val, view, _ref;
   execContext = context.data.exec;
   view = Template._getPath(viewName);
-  v = Template._createView(view, context.hash);
+  resolvedOptions = {};
+  _ref = context.hash;
+  for (key in _ref) {
+    val = _ref[key];
+    resolvedOptions[key] = Template._resolveValue(val, this) || val;
+  }
+  v = Template._createView(view, resolvedOptions);
   execContext.addView(v);
   v.render = function() {
-    return new Handlebars.SafeString(this.span(context(this, null, null, context.data)));
+    return new Handlebars.SafeString(this.span(context(this, {
+      data: context.data
+    })));
   };
   return v.render(v);
 });
@@ -257,11 +282,18 @@ Handlebars.registerHelper("bind", function(attrName, context) {
     attr: attrName,
     model: this
   });
+  if (context.hash) {
+    view.tagName = context.hash.tag || view.tagName;
+    delete context.hash.tag;
+    view.attributes = context.hash;
+  }
   execContext.addView(view);
   model_info = Template._resolveIsModel(attrName, this);
   model_info.model.bind("change:" + model_info.attr, function() {
-    view.rerender();
-    return execContext.makeAlive();
+    if (execContext.isAlive()) {
+      view.rerender();
+      return execContext.makeAlive();
+    }
   });
   return new Handlebars.SafeString(view.render());
 });
@@ -279,11 +311,13 @@ Handlebars.registerHelper("bindAttr", function(context) {
     outAttrs.push("" + k + "=\"" + value + "\"");
     return model_info.model.bind("change:" + model_info.attr, function() {
       var el;
-      el = $("[data-baid='ba-" + id + "']");
-      if (el.length === 0) {
-        return model_info.model.unbind("change" + model_info.attr);
-      } else {
-        return el.attr(k, Template._resolveValue(attr, self));
+      if (context.data.exec.isAlive()) {
+        el = $("[data-baid='ba-" + id + "']");
+        if (el.length === 0) {
+          return model_info.model.unbind("change" + model_info.attr);
+        } else {
+          return el.attr(k, Template._resolveValue(attr, self));
+        }
       }
     });
   });
@@ -306,7 +340,7 @@ Handlebars.registerHelper("collection", function(attr, context) {
   execContext = context.data.exec;
   collection = Template._resolveValue(attr, this);
   if (!(collection.each != null)) {
-    throw "not a backbone collection!";
+    throw new Error("not a backbone collection!");
   }
   options = context.hash;
   colViewPath = options != null ? options.colView : void 0;
@@ -356,7 +390,9 @@ Handlebars.registerHelper("collection", function(attr, context) {
     });
     execContext.addView(mview);
     mview.render = function() {
-      return this.span(context(this, null, null, context.data));
+      return this.span(context(this, {
+        data: context.data
+      }));
     };
     return mview;
   };
@@ -376,23 +412,29 @@ Handlebars.registerHelper("collection", function(attr, context) {
   };
   setup(collection, view, views);
   collection.bind("refresh", function() {
-    views = {};
-    setup(collection, view, views);
-    view.rerender();
-    return execContext.makeAlive();
+    if (execContext.isAlive()) {
+      views = {};
+      setup(collection, view, views);
+      view.rerender();
+      return execContext.makeAlive();
+    }
   });
   collection.bind("add", function(m) {
     var mview;
-    mview = item_view(m);
-    views[m.cid] = mview;
-    view.live().append(mview.render());
-    return execContext.makeAlive();
+    if (execContext.isAlive()) {
+      mview = item_view(m);
+      views[m.cid] = mview;
+      view.live().append(mview.render());
+      return execContext.makeAlive();
+    }
   });
   collection.bind("remove", function(m) {
     var mview;
-    mview = views[m.cid];
-    mview.live().remove();
-    return execContext.removeView(mview);
+    if (execContext.isAlive()) {
+      mview = views[m.cid];
+      mview.live().remove();
+      return execContext.removeView(mview);
+    }
   });
   return view.render();
 });
