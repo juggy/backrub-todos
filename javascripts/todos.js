@@ -93,7 +93,7 @@ this.AppView = Backbone.View.extend({
   initialize: function() {
     _.bindAll(this, "items", "remainingItems", "remainingWord", "doneItems", "doneWord");
     this.model = Todos;
-    this.dependencies( this,
+    this.dependencies(
       {"items add remove refresh" : "model",
       "doneItems change:done add remove refresh" : "model",
       "remainingItems change:items change:doneItems": "",
