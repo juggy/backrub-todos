@@ -31,41 +31,46 @@
     _resolveValue: function(attr, model) {
       var model_info, value;
       model_info = Template._resolveIsModel(attr, model);
-      value = (function() {
-        try {
-          return Template._getPath(model_info.attr, model_info.model, true);
-        } catch (error) {
-
-        }
-      })();
       if (model_info.is_model) {
         return model_info.model.get(model_info.attr);
-      } else if (typeof value === "function") {
-        return value();
+      } else if (model_info.is_model === null) {
+        return attr;
       } else {
-        return value || "";
+        value = (function() {
+          try {
+            return Template._getPath(model_info.attr, model_info.model, true);
+          } catch (error) {
+
+          }
+        })();
+        if (typeof value === "function") {
+          return value();
+        } else {
+          return value;
+        }
       }
     },
     _resolveIsModel: function(attr, model) {
       var is_model;
       is_model = false;
-      attr = attr && ((typeof attr.charAt == "function" ? attr.charAt(0) : void 0) === "@") ? (is_model = true, model = model.model, attr.substring(1)) : attr && model.model && model.model.get(attr) !== void 0 ? (is_model = true, model = model.model, attr) : attr;
+      attr = attr && ((typeof attr.charAt == "function" ? attr.charAt(0) : void 0) === "@") ? (is_model = true, model = model.model, attr.substring(1)) : attr && model.model && model.model.get && model.model.get(attr) !== void 0 ? (is_model = true, model = model.model, attr) : model[attr] !== void 0 ? attr : (model = null, is_model = null, attr);
       return {
         is_model: is_model,
         attr: attr,
-        model: model
+        model: model,
+        bind: function(callback) {
+          if (model && model.bind) {
+            return model.bind("change:" + attr, callback);
+          }
+        }
       };
     },
     _bindIf: function(attr, context) {
       var model_info, view;
       if (context) {
-        view = new Template._BindView({
-          attr: attr,
-          model: this
-        });
-        context.data.exec.addView(view);
+        view = Template._createBindView(attr, this, context);
         model_info = Template._resolveIsModel(attr, this);
-        model_info.model.bind("change:" + model_info.attr, function() {
+        model_info.bind(function() {
           if (context.data.exec.isAlive()) {
             view.rerender();
             return context.data.exec.makeAlive();
@@ -83,33 +88,81 @@
         throw new Error("No block is provided!");
       }
     },
+    _bindAttr: function(attrs, context, model) {
+      var id, outAttrs, self;
+      id = _.uniqueId('ba');
+      outAttrs = [];
+      self = model || this;
+      _.each(attrs, function(attr, k) {
+        var model_info, value;
+        model_info = Template._resolveIsModel(attr, self);
+        value = Template._resolveValue(attr, self);
+        outAttrs.push("" + k + "=\"" + value + "\"");
+        return model_info.bind(function() {
+          var el;
+          if (context.data.exec.isAlive()) {
+            el = $("[data-baid='" + id + "']");
+            if (el.length === 0) {
+              return model_info.model.unbind("change" + model_info.attr);
+            } else {
+              return el.attr(k, Template._resolveValue(attr, self));
+            }
+          }
+        });
+      });
+      if (outAttrs.length > 0) {
+        outAttrs.push("data-baid=\"" + id + "\"");
+      }
+      return new Handlebars.SafeString(outAttrs.join(" "));
+    },
     _createView: function(viewProto, options) {
       var v;
       v = new viewProto(options);
       if (!v) {
         throw new Error("Cannot instantiate view");
       }
+      v._ensureElement = Template._BindView.prototype._ensureElement;
       v.span = Template._BindView.prototype.span;
       v.live = Template._BindView.prototype.live;
       v.textAttributes = Template._BindView.prototype.textAttributes;
-      v.bvid = "bv-" + (jQuery.uuid++);
+      v.bvid = "" + (_.uniqueId('bv'));
       return v;
+    },
+    _createBindView: function(attr, model, context) {
+      var view;
+      view = new Template._BindView({
+        attr: attr,
+        model: model,
+        context: context,
+        prevThis: model
+      });
+      context.data.exec.addView(view);
+      if (context.hash) {
+        view.tagName = context.hash.tag || view.tagName;
+        delete context.hash.tag;
+        view.attributes = context.hash;
+      }
+      return view;
     },
     _BindView: Backbone.View.extend({
       tagName: "span",
+      _ensureElement: function() {
+        return null;
+      },
       live: function() {
         return $("[data-bvid='" + this.bvid + "']");
       },
       initialize: function() {
         _.bindAll(this, "render", "rerender", "span", "live", "value", "textAttributes");
-        this.bvid = "bv-" + (jQuery.uuid++);
-        return this.attr = this.options.attr;
+        this.bvid = "" + (_.uniqueId('bv'));
+        this.attr = this.options.attr;
+        this.prevThis = this.options.prevThis;
+        return this.hbContext = this.options.context;
       },
       value: function() {
         return Template._resolveValue(this.attr, this.model);
       },
       textAttributes: function() {
-        var attr;
         this.attributes = this.attributes || this.options.attributes || {};
         if (!this.attributes.id && this.id) {
           this.attributes.id = this.id;
@@ -117,10 +170,7 @@
         if (!this.attributes["class"] && this.className) {
           this.attributes["class"] = this.className;
         }
-        attr = _.map(this.attributes, function(v, k) {
-          return "" + k + "=\"" + v + "\"";
-        });
-        return attr.join(" ");
+        return Template._bindAttr(this.attributes, this.hbContext, this.prevThis || this).string;
       },
       span: function(inner) {
         return "<" + this.tagName + " " + (this.textAttributes()) + " data-bvid=\"" + this.bvid + "\">" + inner + "</" + this.tagName + ">";
@@ -139,14 +189,13 @@
       return Template._Genuine.mustache.call(this, mustache);
     } else {
       id = new Handlebars.AST.IdNode(['bind']);
-      mustache.id.string = "" + mustache.id.string;
       mustache = new Handlebars.AST.MustacheNode([id].concat([mustache.id]), mustache.hash, !mustache.escaped);
       return Template._Genuine.mustache.call(this, mustache);
     }
   };
   Handlebars.JavaScriptCompiler.prototype.nameLookup = function(parent, name, type) {
     if (type === 'context') {
-      return "(context.model && context.model.get(\"" + name + "\") != null ? \"@" + name + "\" : \"" + name + "\");";
+      return "\"" + name + "\"";
     } else {
       return Template._Genuine.nameLookup.call(this, parent, name, type);
     }
@@ -280,18 +329,9 @@
   Handlebars.registerHelper("bind", function(attrName, context) {
     var execContext, model_info, view;
     execContext = context.data.exec;
-    view = new Template._BindView({
-      attr: attrName,
-      model: this
-    });
-    if (context.hash) {
-      view.tagName = context.hash.tag || view.tagName;
-      delete context.hash.tag;
-      view.attributes = context.hash;
-    }
-    execContext.addView(view);
+    view = Template._createBindView(attrName, this, context);
     model_info = Template._resolveIsModel(attrName, this);
-    model_info.model.bind("change:" + model_info.attr, function() {
+    model_info.bind(function() {
       if (execContext.isAlive()) {
         view.rerender();
         return execContext.makeAlive();
@@ -300,31 +340,7 @@
     return new Handlebars.SafeString(view.render());
   });
   Handlebars.registerHelper("bindAttr", function(context) {
-    var attrs, id, outAttrs, self;
-    attrs = context.hash;
-    id = jQuery.uuid++;
-    outAttrs = [];
-    self = this;
-    _.each(attrs, function(v, k) {
-      var attr, model_info, value;
-      attr = v;
-      model_info = Template._resolveIsModel(attr, self);
-      value = Template._resolveValue(attr, self);
-      outAttrs.push("" + k + "=\"" + value + "\"");
-      return model_info.model.bind("change:" + model_info.attr, function() {
-        var el;
-        if (context.data.exec.isAlive()) {
-          el = $("[data-baid='ba-" + id + "']");
-          if (el.length === 0) {
-            return model_info.model.unbind("change" + model_info.attr);
-          } else {
-            return el.attr(k, Template._resolveValue(attr, self));
-          }
-        }
-      });
-    });
-    outAttrs.push("data-baid=\"ba-" + id + "\"");
-    return new Handlebars.SafeString(outAttrs.join(" "));
+    return _.bind(Template._bindAttr, this)(context.hash, context);
   });
   Handlebars.registerHelper("if", function(attr, context) {
     return _.bind(Template._bindIf, this)(attr, context);
@@ -370,12 +386,14 @@
     view = colView ? Template._createView(colView, {
       model: collection,
       attributes: colAtts,
+      context: context,
       tagName: (options != null ? options.colTag : void 0) ? colTagName : colView.prototype.tagName
     }) : new Template._BindView({
       tagName: colTagName,
       attributes: colAtts,
       attr: attr,
-      model: this
+      model: this,
+      context: context
     });
     execContext.addView(view);
     views = {};
@@ -384,11 +402,13 @@
       mview = itemView ? Template._createView(itemView, {
         model: m,
         attributes: itemAtts,
+        context: context,
         tagName: (options != null ? options.itemTag : void 0) ? itemTagName : itemView.prototype.tagName
       }) : new Template._BindView({
         tagName: itemTagName,
         attributes: itemAtts,
-        model: m
+        model: m,
+        context: context
       });
       execContext.addView(mview);
       mview.render = function() {
