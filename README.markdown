@@ -1,15 +1,15 @@
-# Backbone Template TODOs example
+# Backrub TODOs example
 
 Partly copied and adapted from the original example by Jerome https://github.com/jeromegn/localtodos .
 
-# What is Backbone Template
+# What is Backrub
 
-Backbone Template lets you describe your Backbone view layer in a single template that will automatically refresh when the bounded data changes. It uses Handlebars and is inspired by SproutCore (>= 1.5) SC.TemplateView .
+Backrub lets you describe your Backbone view layer in a single template that will automatically refresh when the bounded data changes. It uses Handlebars and is inspired by SproutCore (>= 1.5) SC.TemplateView .
 
 ## Basic use
 
 * Create your template
-* Load it in a Backbone.Template object
+* Load it in a Backbone.Backrub object
 * render it and append it to your page (somewhere, the body maybe)
 * Make it alive to start all eventing and make your views behave as intended
 
@@ -21,7 +21,7 @@ Backbone Template lets you describe your Backbone view layer in a single templat
 
 # More...
 
-Check out Backbone Template Github repo at https://github.com/juggy/backbone-template
+Check out Backrub Github repo at https://github.com/juggy/Backrub
 
 # License (MIT)
 

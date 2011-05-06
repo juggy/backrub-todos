@@ -161,7 +161,7 @@ this.AppView = Backbone.View.extend({
 });
 
 $(function(){
-  var app = new Backbone.Template($("#app-template").text());
-  $("body").append(app.render());
+  var app = new Backbone.Backrub($("#app-template").html());
+  $("#app-template").after(app.render());
   app.makeAlive();
 });
